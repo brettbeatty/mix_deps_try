@@ -5,7 +5,9 @@ defmodule Mix.Tasks.Deps.Try do
   def run(args)
 
   def run([app, version]) do
+    Mix.ProjectStack.clear_stack()
     {project, file} = generate_new_project!(app, version)
+    configure_relative(file)
     Code.compile_file(file)
     Mix.Task.run("deps.get")
     Mix.Task.run("deps.compile")
@@ -59,5 +61,17 @@ defmodule Mix.Tasks.Deps.Try do
       end
     end
     """
+  end
+
+  @spec configure_relative(file :: Path.t()) :: none()
+  defp configure_relative(file) do
+    dir = Path.dirname(file)
+
+    Mix.ProjectStack.post_config(
+      build_path: Path.join(dir, "_build"),
+      config_path: Path.join(dir, "config/config.exs"),
+      deps_path: Path.join(dir, "deps"),
+      lockfile: Path.join(dir, "mix.lock")
+    )
   end
 end
