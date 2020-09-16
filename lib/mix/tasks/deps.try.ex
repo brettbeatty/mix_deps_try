@@ -8,10 +8,16 @@ defmodule Mix.Tasks.Deps.Try do
     Mix.ProjectStack.clear_stack()
     {project, file} = generate_new_project!(app, version)
     configure_relative(file)
-    Code.compile_file(file)
+    compile_file(file)
     Mix.Task.run("deps.get")
     Mix.Task.run("deps.compile")
     Application.ensure_all_started(project)
+  end
+
+  if function_exported?(Code, :compile_file, 1) do
+    defdelegate compile_file(file), to: Code
+  else
+    defdelegate compile_file(file), to: Code, as: :load_file
   end
 
   def run([app]) do
