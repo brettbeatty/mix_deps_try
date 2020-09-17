@@ -5,19 +5,11 @@ defmodule Mix.Tasks.Deps.Try do
   def run(args)
 
   def run([app, version]) do
-    Mix.ProjectStack.clear_stack()
-    {_project, file} = generate_new_project!(app, version)
-    configure_relative(file)
-    compile_file(file)
-    Mix.Task.run("deps.get")
-    Mix.Task.run("deps.compile")
-    Application.ensure_all_started(String.to_atom(app))
-  end
+    app = String.to_atom(app)
 
-  if function_exported?(Code, :compile_file, 1) do
-    defdelegate compile_file(file), to: Code
-  else
-    defdelegate compile_file(file), to: Code, as: :load_file
+    build_tmp_project!(app, version)
+
+    Application.ensure_all_started(app)
   end
 
   def run([app]) do
@@ -28,14 +20,29 @@ defmodule Mix.Tasks.Deps.Try do
     Mix.raise("Usage: mix deps.try <app> [version]")
   end
 
-  @spec generate_new_project!(app :: binary(), version :: binary()) :: {atom(), Path.t()}
-  defp generate_new_project!(app, version) do
-    project = generate_tag()
-    dir = Path.join("/tmp/mix_deps_try", to_string(project))
+  @spec build_tmp_project!(app :: atom(), version :: binary()) :: none()
+  defp build_tmp_project!(app, version) do
+    Mix.ProjectStack.clear_stack()
+
+    app
+    |> write_tmp_project!(version)
+    |> compile_project!()
+
+    Mix.Task.run("deps.get")
+    Mix.Task.run("deps.compile")
+  end
+
+  @spec write_tmp_project!(app :: atom(), version :: binary()) :: Path.t()
+  defp write_tmp_project!(app, version) do
+    tag = generate_tag()
+
+    dir = Path.join([System.tmp_dir!(), "mix_deps_try", to_string(tag)])
     File.mkdir_p!(dir)
+
     file = Path.join(dir, "mix.exs")
-    File.write(file, generate_mix_exs(project, app, version))
-    {project, file}
+    File.write!(file, generate_mix_exs(tag, app, version, dir))
+
+    file
   end
 
   @spec generate_tag() :: atom()
@@ -46,38 +53,38 @@ defmodule Mix.Tasks.Deps.Try do
     |> String.to_atom()
   end
 
-  @spec generate_mix_exs(project :: atom(), app :: binary(), version :: binary()) :: iodata()
-  defp generate_mix_exs(project, app, version) do
-    project = inspect(project)
-    app = app |> String.to_atom() |> inspect()
-    version = inspect(version)
+  @spec generate_mix_exs(tag :: atom, app :: atom(), version :: binary(), dir :: Path.t()) ::
+          iodata()
+  defp generate_mix_exs(tag, app, version, dir) do
+    config = [
+      app: tag,
+      version: "0.0.0",
+      deps: [{app, version}],
+      build_path: Path.join(dir, "_build"),
+      config_path: Path.join(dir, "config/config.exs"),
+      deps_path: Path.join(dir, "deps"),
+      lockfile: Path.join(dir, "mix.lock")
+    ]
 
     """
-    defmodule #{project} do
+    defmodule #{inspect(tag)} do
       use Mix.Project
 
       def project do
-        [
-          app: #{project},
-          version: "0.0.0",
-          deps: [
-            {#{app}, #{version}}
-          ]
-        ]
+        #{inspect(config)}
       end
     end
     """
   end
 
-  @spec configure_relative(file :: Path.t()) :: none()
-  defp configure_relative(file) do
-    dir = Path.dirname(file)
-
-    Mix.ProjectStack.post_config(
-      build_path: Path.join(dir, "_build"),
-      config_path: Path.join(dir, "config/config.exs"),
-      deps_path: Path.join(dir, "deps"),
-      lockfile: Path.join(dir, "mix.lock")
-    )
+  @spec compile_project!(file :: Path.t()) :: none()
+  if function_exported?(Code, :compile_file, 1) do
+    defp compile_project!(file) do
+      Code.compile_file(file)
+    end
+  else
+    defp compile_project!(file) do
+      Code.load_file(file)
+    end
   end
 end
